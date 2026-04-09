@@ -31,35 +31,39 @@ if uploaded_file:
 if uploaded_file and st.button("Generate Adventure"):
     try:
         base64_img = encode_image(uploaded_file)
-        with st.status("🪄 Weaving a human story...", expanded=True) as status:
+        with st.status("🪄 Weaving your adventure...", expanded=True) as status:
             res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a children's book author. Return JSON with 'story' (string), 'missions' (list of strings), and 'hints' (list of strings). No nested objects inside the lists."},
+                    {"role": "system", "content": "You are a children's book author. Return JSON with 'story' (string), 'objects_found' (list of strings), and 'hints' (list of strings)."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "Step 1: Identify 5 objects. Step 2: Write a toddler story. Step 3: Create 5 simple missions with hints. Return ONLY JSON."},
+                        {"type": "text", "text": "Step 1: Identify 5 actual objects. Step 2: Write a toddler story using them. Step 3: For each object, create a hint describing its location in the photo. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            raw_content = res.choices[0].message.content
+            raw_content = res.choices.message.content
             data = json.loads(raw_content)
             
-            # Helper to clean any accidental JSON brackets from strings
+            # Helper to keep text human-friendly
             def clean(val):
-                if isinstance(val, dict):
-                    # If AI sent {'mission': 'text'}, just grab the 'text'
-                    return list(val.values())[0]
-                return str(val)
+                return str(val).strip("{}'[]\"")
 
             st.session_state.story_text = clean(data.get("story", ""))
             
-            # Clean missions and hints specifically
-            m_list = [clean(m) for m in data.get("missions", [])]
-            h_list = [clean(h) for h in data.get("hints", [])]
-            st.session_state.missions = list(zip(m_list, h_list))
+            # Format questions exactly as requested
+            objs = data.get("objects_found", [])
+            hints = data.get("hints", [])
+            
+            formatted_missions = []
+            for i in range(len(objs)):
+                q = f"Can you see the {objs[i]} in the photo?"
+                h = hints[i] if i < len(hints) else "Look closely at the colors!"
+                formatted_missions.append((clean(q), clean(h)))
+            
+            st.session_state.missions = formatted_missions
 
             # 3. Build PDF
             pdf = FPDF()
@@ -75,13 +79,13 @@ if uploaded_file and st.button("Generate Adventure"):
                 pdf.set_font("Helvetica", 'B', 16)
                 pdf.cell(190, 10, "Seek and Find Missions!", ln=True)
                 pdf.ln(10)
-                for i, (m, h) in enumerate(st.session_state.missions):
+                for i, (q, h) in enumerate(st.session_state.missions):
                     pdf.set_x(10)
                     pdf.set_font("Helvetica", 'B', 12)
-                    pdf.multi_cell(180, 8, txt=f"{i+1}. Target: {m}".encode('latin-1', 'replace').decode('latin-1'))
+                    pdf.multi_cell(180, 8, txt=f"{i+1}. {q}".encode('latin-1', 'replace').decode('latin-1'))
                     pdf.set_x(10)
                     pdf.set_font("Helvetica", 'I', 11)
-                    pdf.multi_cell(180, 7, txt=f"   Hint for Mom: {h}".encode('latin-1', 'replace').decode('latin-1'))
+                    pdf.multi_cell(180, 7, txt=f"   Hint: {h}".encode('latin-1', 'replace').decode('latin-1'))
                     pdf.ln(5)
 
             st.session_state.pdf_data = bytes(pdf.output())
@@ -96,8 +100,8 @@ if st.session_state.story_text:
     st.write(st.session_state.story_text)
     
     st.header("🎯 Seek and Find Missions")
-    for i, (m, h) in enumerate(st.session_state.missions):
-        with st.expander(f"👉 Mission {i+1}: {m}"):
+    for i, (q, h) in enumerate(st.session_state.missions):
+        with st.expander(f"👉 Mission {i+1}: {q}"):
             st.write(f"💡 {h}")
 
 if st.session_state.pdf_data:
