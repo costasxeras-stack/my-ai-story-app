@@ -15,7 +15,6 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Use Session State so data persists
 if "story_text" not in st.session_state: st.session_state.story_text = ""
 if "missions" not in st.session_state: st.session_state.missions = []
 if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
@@ -27,57 +26,61 @@ def encode_image(uploaded_file):
 uploaded_file = st.file_uploader("Upload any photo to start", type=['jpg', 'png', 'jpeg'])
 
 if uploaded_file and st.button("Generate Adventure"):
-    # Clear old data immediately
-    st.session_state.story_text = ""
-    st.session_state.pdf_data = None
-    
     try:
         base64_img = encode_image(uploaded_file)
         
-        # Use st.status to show real-time progress
         with st.status("🪄 Working on it...", expanded=True) as status:
-            st.write("🔍 Analyzing the photo...")
+            st.write("🔍 Analyzing photo...")
             res = client.chat.completions.create(
-                model="gpt-4o", # Using the main model for vision
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a precise vision assistant. Return ONLY JSON with 'story', 'missions' (list), and 'hints' (list)."},
+                    {"role": "system", "content": "Return ONLY JSON with 'story', 'missions' (list), and 'hints' (list)."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "Identify 5 objects. Write a short story and 5 seek-and-find missions with hints. Return ONLY JSON."},
+                        {"type": "text", "text": "Identify 5 objects. Write a story and 5 missions with hints. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            st.write("✍️ Formatting your adventure...")
+            # FIXED: Correct choice access
             raw_json = res.choices[0].message.content
             data = json.loads(raw_json)
             
-            st.session_state.story_text = data.get("story", "A magical adventure begins!")
+            st.session_state.story_text = data.get("story", "")
             missions = data.get("missions", [])
             hints = data.get("hints", [])
             st.session_state.missions = list(zip(missions, hints))
 
-            st.write("📄 Creating your PDF...")
+            st.write("📄 Creating PDF...")
             pdf = FPDF()
-            # Page 1
+            
+            # PAGE 1: Photo + Story
             pdf.add_page()
             pdf.image(BytesIO(uploaded_file.getvalue()), x=10, y=10, w=180)
-            pdf.set_y(140) 
-            pdf.set_font("Helvetica", size=12)
-            pdf.multi_cell(0, 10, txt=st.session_state.story_text.encode('latin-1', 'replace').decode('latin-1'))
             
-            # Page 2
-            pdf.add_page()
-            pdf.set_font("Helvetica", 'B', 16)
-            pdf.cell(0, 10, "Seek and Find Missions!", ln=True)
-            pdf.ln(5)
-            for m, h in st.session_state.missions:
-                pdf.set_font("Helvetica", 'B', 12)
-                pdf.multi_cell(0, 10, txt=f"Mission: {m}".encode('latin-1', 'replace').decode('latin-1'))
-                pdf.set_font("Helvetica", size=11)
-                pdf.multi_cell(0, 8, txt=f"Hint: {h}".encode('latin-1', 'replace').decode('latin-1'))
-                pdf.ln(4)
+            # THE CRITICAL FIX: Manually reset the cursor to a safe spot with full width
+            pdf.set_xy(10, 150) 
+            pdf.set_font("Helvetica", size=12)
+            
+            # Clean text for PDF
+            safe_story = st.session_state.story_text.encode('latin-1', 'replace').decode('latin-1')
+            # Using width=190 (full page width minus margins) to force horizontal space
+            pdf.multi_cell(190, 10, txt=safe_story)
+            
+            # PAGE 2: Missions
+            if st.session_state.missions:
+                pdf.add_page()
+                pdf.set_xy(10, 20)
+                pdf.set_font("Helvetica", 'B', 16)
+                pdf.cell(0, 10, "Seek and Find Missions!", ln=True)
+                pdf.ln(5)
+                for m, h in st.session_state.missions:
+                    pdf.set_font("Helvetica", 'B', 12)
+                    pdf.multi_cell(190, 8, txt=f"Mission: {m}".encode('latin-1', 'replace').decode('latin-1'))
+                    pdf.set_font("Helvetica", size=11)
+                    pdf.multi_cell(190, 7, txt=f"Hint: {h}".encode('latin-1', 'replace').decode('latin-1'))
+                    pdf.ln(4)
 
             st.session_state.pdf_data = bytes(pdf.output())
             status.update(label="✅ Magic Complete!", state="complete", expanded=False)
@@ -85,7 +88,7 @@ if uploaded_file and st.button("Generate Adventure"):
     except Exception as e:
         st.error(f"Technical issue: {e}")
 
-# 3. Display Result
+# 3. Display Results
 if uploaded_file:
     st.image(uploaded_file, use_container_width=True)
 
