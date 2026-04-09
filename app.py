@@ -3,7 +3,6 @@ import openai
 import json
 import base64
 from fpdf import FPDF
-from io import BytesIO
 
 # 1. Setup
 st.set_page_config(page_title="Bedtime Story AI", page_icon="🌙")
@@ -31,44 +30,46 @@ if uploaded_file and st.button("Generate My Story"):
             char_res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Return ONLY JSON: {'name': '...', 'outfit': '...'}"},
+                    {"type": "text", "text": "Describe the child in this photo: Name, hair, and outfit. Return as simple text."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]}],
-                response_format={"type": "json_object"}
+                ]}]
             )
-            # FIXED: Added .content here
-            character = json.loads(char_res.choices[0].message.content)
-            hero_name = character.get('name', 'the hero')
+            hero_desc = char_res.choices[0].message.content
 
             # STEP B: Generate Story
-            st.write(f"✍️ Writing a story for {hero_name}...")
+            st.write("✍️ Writing 5 magical pages...")
+            # We ask for a simple format that is harder for the AI to mess up
             story_res = client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{"role": "user", "content": f"Write a 5-page story about {hero_name}. Return ONLY JSON with a list called 'pages'. Each item has 'text' and 'prompt'."}],
-                response_format={"type": "json_object"}
+                messages=[{"role": "user", "content": f"Based on this child: {hero_desc}, write a 5-page bedtime story. Format it exactly like this:\nPage 1: [text] | [image prompt]\nPage 2: [text] | [image prompt]... etc."}]
             )
-            # FIXED: Added .content here
-            story_json = json.loads(story_res.choices[0].message.content)
-            pages = story_json.get('pages', [])
+            raw_story = story_res.choices[0].message.content
+            # Split the text into 5 pages manually
+            story_lines = [line for line in raw_story.split('\n') if 'Page' in line]
 
             # STEP C: Images & PDF
             pdf = FPDF()
-            for i, page in enumerate(pages[:5]):
+            for i, line in enumerate(story_lines[:5]):
                 st.write(f"🎨 Painting illustration {i+1} of 5...")
                 
+                # Split the line into text and prompt
+                parts = line.split('|')
+                page_text = parts[0] if len(parts) > 0 else "Once upon a time..."
+                image_prompt = parts[1] if len(parts) > 1 else "A magical forest"
+
                 img_gen = client.images.generate(
                     model="dall-e-3",
-                    prompt=f"Children's book style: {page.get('prompt', 'magical scene')}. Character is {hero_name}.",
+                    prompt=f"Children's book style: {image_prompt}. {hero_desc}",
                     n=1, size="1024x1024"
                 )
-                img_url = img_gen.data[0].url # FIXED: Added [0] here
+                img_url = img_gen.data[0].url 
                 
                 st.image(img_url, caption=f"Page {i+1}")
-                st.write(page.get('text', 'Once upon a time...'))
+                st.write(page_text)
                 
                 pdf.add_page()
                 pdf.set_font("Arial", size=12)
-                pdf.multi_cell(0, 10, txt=page.get('text', ''))
+                pdf.multi_cell(0, 10, txt=page_text.encode('latin-1', 'replace').decode('latin-1'))
 
             # STEP D: Download
             pdf_bytes = pdf.output(dest='S').encode('latin-1')
