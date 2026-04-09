@@ -1,3 +1,4 @@
 streamlit
 openai
-fpdf
+fpdf2
+requests
