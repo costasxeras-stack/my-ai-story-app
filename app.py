@@ -10,7 +10,7 @@ st.title("🌙 Bedtime Story Creator")
 
 # 1. API Setup
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Missing API Key! Add it to Streamlit Secrets.")
+    st.error("Missing API Key in Secrets!")
     st.stop()
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -18,8 +18,8 @@ client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 # Initialize App Memory
 if "pages" not in st.session_state:
     st.session_state.pages = []
-if "pdf_bytes" not in st.session_state:
-    st.session_state.pdf_bytes = None
+if "pdf_data" not in st.session_state:
+    st.session_state.pdf_data = None
 
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
@@ -30,11 +30,12 @@ uploaded_file = st.file_uploader("Upload photo of hero", type=['jpg', 'png', 'jp
 if uploaded_file and st.button("Generate My Story"):
     try:
         st.session_state.pages = [] 
+        st.session_state.pdf_data = None
         
         with st.status("🪄 Creating magic..."):
             # Step A: Hero Analysis
             base64_img = encode_image(uploaded_file)
-            char_res = client.chat.completions.create(
+            char_res = client.chat.get(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": [{"type": "text", "text": "Describe the shirt color and pick a woodland animal. Return: 'A [animal] in a [color] shirt'."}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}]}]
             )
@@ -59,30 +60,29 @@ if uploaded_file and st.button("Generate My Story"):
                 )
                 url = img_gen.data[0].url
                 
-                # FIX for '_io.BytesIO' object has no attribute 'rfind'
-                # We download the image and give it a fake name so FPDF knows it's a JPEG
-                img_data = requests.get(url).content
-                img_stream = BytesIO(img_data)
+                # Download image
+                img_response = requests.get(url)
+                img_bytes = BytesIO(img_response.content)
                 
-                # Save to app memory
+                # Save to UI memory
                 st.session_state.pages.append({"text": txt, "url": url})
 
-                # Add to PDF
+                # Add to PDF using fpdf2's ability to take BytesIO directly
                 pdf.add_page()
-                # We use the 'name' parameter to tell FPDF this is a JPG
-                pdf.image(img_stream, x=10, y=10, w=190, type='JPG')
-                pdf.ln(200)
+                pdf.image(img_bytes, x=10, y=10, w=190)
+                pdf.set_y(210) # Move cursor below image
                 pdf.set_font("Helvetica", size=12)
-                pdf.multi_cell(0, 10, txt=txt.encode('latin-1', 'replace').decode('latin-1'))
+                # Ensure text is safe for PDF
+                safe_text = txt.encode('latin-1', 'replace').decode('latin-1')
+                pdf.multi_cell(0, 10, txt=safe_text)
 
-            # Finalize PDF
-            out = pdf.output(dest='S')
-            st.session_state.pdf_bytes = out.encode('latin-1') if isinstance(out, str) else out
+            # Finalize PDF as bytes
+            st.session_state.pdf_data = pdf.output()
 
     except Exception as e:
         st.error(f"Error: {e}")
 
-# 3. Display Results (This stays visible because of session_state)
+# 3. Display Results
 for i, p in enumerate(st.session_state.pages):
     st.markdown(f"### Page {i+1}")
     st.image(p["url"])
@@ -90,5 +90,10 @@ for i, p in enumerate(st.session_state.pages):
     st.divider()
 
 # 4. Download
-if st.session_state.pdf_bytes:
-    st.download_button("📥 Download PDF Story", data=st.session_state.pdf_bytes, file_name="story.pdf", mime="application/pdf")
+if st.session_state.pdf_data:
+    st.download_button(
+        label="📥 Download PDF Story",
+        data=st.session_state.pdf_data,
+        file_name="story.pdf",
+        mime="application/pdf"
+    )
