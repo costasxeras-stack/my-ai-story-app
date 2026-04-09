@@ -19,26 +19,25 @@ uploaded_file = st.file_uploader("Upload a photo of the hero", type=['jpg', 'png
 
 if uploaded_file and st.button("Generate My Story"):
     try:
-        # 1. Analyze Photo
-        with st.status("🔍 Identifying hero..."):
+        # 1. Analyze Photo & Convert to Generic Character
+        with st.status("🔍 Turning your hero into a storybook character..."):
             base64_image = encode_image(uploaded_file)
             char_res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Describe the child's hair and outfit only. No names."},
+                    {"type": "text", "text": "Describe ONLY the colors of the child's clothing and hair. Then, pick a cute animal (like a bunny or bear) to represent them. Format: 'A [animal] wearing [color] clothes'."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]}]
             )
-            # FIXED: Added [0] here
-            hero_desc = char_res.choices[0].message.content
+            # Use [0] to avoid the 'list' error
+            hero_proxy = char_res.choices[0].message.content
 
         # 2. Write Story
-        with st.status("✍️ Writing pages..."):
+        with st.status("✍️ Writing the adventure..."):
             story_res = client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{"role": "user", "content": f"Write a 5-page story about a hero: {hero_desc}. Format: Page X: [text] | [prompt]"}]
+                messages=[{"role": "user", "content": f"Write a 5-page story about {hero_proxy}. Format each page exactly like this: Page X: [text] | [image prompt]"}]
             )
-            # FIXED: Added [0] here
             raw_story = story_res.choices[0].message.content
             story_lines = [line for line in raw_story.split('\n') if '|' in line]
 
@@ -54,13 +53,15 @@ if uploaded_file and st.button("Generate My Story"):
             with st.container():
                 st.markdown(f"### Page {i+1}")
                 
-                with st.spinner(f"Painting illustration {i+1}..."):
+                with st.spinner(f"Painting page {i+1}..."):
+                    # We add "Hand-drawn cartoon" and "Fictional" to stay safe
+                    safe_art_prompt = f"Whimsical hand-drawn 2D cartoon illustration. Character: {hero_proxy}. Action: {p_prompt}. No real people, no photos, simple colors."
+                    
                     img_gen = client.images.generate(
                         model="dall-e-3",
-                        prompt=f"Watercolor children's book style: {p_prompt}. Character: {hero_desc}",
+                        prompt=safe_art_prompt,
                         n=1, size="1024x1024"
                     )
-                    # FIXED: Added [0] here
                     img_url = img_gen.data[0].url
                     st.image(img_url)
                 
@@ -77,14 +78,14 @@ if uploaded_file and st.button("Generate My Story"):
                 pdf.multi_cell(0, 10, txt=clean_text)
 
         # 4. Final Download Button
-        st.success("The story is complete!")
+        st.success("Your story is ready!")
         pdf_output = pdf.output(dest='S')
         st.download_button(
-            label="📥 Download this story as a PDF", 
+            label="📥 Download PDF", 
             data=bytes(pdf_output), 
-            file_name="bedtime_story.pdf", 
+            file_name="story.pdf", 
             mime="application/pdf"
         )
 
     except Exception as e:
-        st.error(f"Something went wrong: {e}")
+        st.error(f"Error: {e}")
