@@ -15,11 +15,11 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Initialize Session State
+# Initialize Session State (Persistent Memory)
 if "story_pages" not in st.session_state:
     st.session_state.story_pages = []
-if "final_pdf" not in st.session_state:
-    st.session_state.final_pdf = None
+if "pdf_bytes" not in st.session_state:
+    st.session_state.pdf_bytes = None
 
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
@@ -31,10 +31,11 @@ if uploaded_file and st.button("Generate My Story"):
     try:
         # Reset memory for new generation
         st.session_state.story_pages = []
-        st.session_state.final_pdf = None
+        st.session_state.pdf_bytes = None
         
-        with st.status("🪄 Creating magic... (This takes ~2 mins)"):
-            # Step A: Analyze Hero (Using .create, NOT .get)
+        with st.status("🪄 Creating magic...", expanded=True) as status:
+            # Step A: Analyze Hero
+            st.write("🔍 Analyzing photo...")
             base64_img = encode_image(uploaded_file)
             char_res = client.chat.completions.create(
                 model="gpt-4o",
@@ -46,6 +47,7 @@ if uploaded_file and st.button("Generate My Story"):
             hero_proxy = char_res.choices[0].message.content
 
             # Step B: Write Story
+            st.write("✍️ Writing the story...")
             story_res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": f"Write a 5-page story about {hero_proxy}. Use 'BREAK' between pages."}]
@@ -56,7 +58,7 @@ if uploaded_file and st.button("Generate My Story"):
             # Step C: Build Story and PDF
             pdf = FPDF()
             for i, txt in enumerate(page_texts):
-                # Image Generation
+                st.write(f"🎨 Painting illustration {i+1}...")
                 img_gen = client.images.generate(
                     model="dall-e-3",
                     prompt=f"Watercolor illustration: {hero_proxy} in {txt[:100]}. No humans.",
@@ -71,7 +73,7 @@ if uploaded_file and st.button("Generate My Story"):
                 # Save to UI memory
                 st.session_state.story_pages.append({"text": txt, "url": img_url})
 
-                # Add to PDF (fpdf2 handles BytesIO)
+                # Add to PDF
                 pdf.add_page()
                 pdf.image(img_bytes, x=10, y=10, w=190)
                 pdf.set_y(210)
@@ -79,24 +81,25 @@ if uploaded_file and st.button("Generate My Story"):
                 safe_text = txt.encode('latin-1', 'replace').decode('latin-1')
                 pdf.multi_cell(0, 10, txt=safe_text)
 
-            # Finalize PDF
-            st.session_state.final_pdf = pdf.output()
+            # Finalize PDF (Converting to BYTES to fix StreamlitAPIException)
+            st.session_state.pdf_bytes = bytes(pdf.output())
+            status.update(label="✅ Story Complete!", state="complete", expanded=False)
 
     except Exception as e:
         st.error(f"Error: {e}")
 
-# 3. Display Results
+# 3. Display Results (Remains visible because of session_state)
 for i, p in enumerate(st.session_state.story_pages):
     st.markdown(f"### Page {i+1}")
     st.image(p["url"])
     st.write(p["text"])
     st.divider()
 
-# 4. Final Download Button
-if st.session_state.final_pdf:
+# 4. Final Download Button (Only visible if PDF is ready)
+if st.session_state.pdf_bytes:
     st.download_button(
         label="📥 Download PDF with Photos",
-        data=st.session_state.final_pdf,
+        data=st.session_state.pdf_bytes,
         file_name="storybook.pdf",
         mime="application/pdf"
     )
