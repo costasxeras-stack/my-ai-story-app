@@ -5,17 +5,18 @@ from fpdf import FPDF
 from io import BytesIO
 import json
 
-# 1. Setup
+# 1. Page Config
 st.set_page_config(page_title="Magic Scan & Seek", page_icon="🔍")
 st.title("🔍 Magic Scan & Seek")
 
+# 2. API Setup
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Missing API Key! Add it to Streamlit Secrets.")
+    st.error("Missing API Key! Please add it to Streamlit Secrets.")
     st.stop()
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Initialize memory
+# Initialize Persistent Memory
 if "story_text" not in st.session_state: st.session_state.story_text = ""
 if "missions" not in st.session_state: st.session_state.missions = []
 if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
@@ -23,7 +24,7 @@ if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
 
-# 2. Universal Upload Interface
+# 3. User Interface
 uploaded_file = st.file_uploader("Upload any photo to start the adventure", type=['jpg', 'png', 'jpeg'])
 
 if uploaded_file and st.button("Generate Adventure"):
@@ -44,49 +45,50 @@ if uploaded_file and st.button("Generate Adventure"):
                 response_format={"type": "json_object"}
             )
             
-            data = json.loads(res.choices.message.content)
-            st.session_state.story_text = data.get("story", "")
+            # THE CRITICAL FIX: Accessing choices[0] to prevent the 'list' error
+            raw_json = res.choices[0].message.content
+            data = json.loads(raw_json)
             
+            st.session_state.story_text = data.get("story", "")
             missions = data.get("missions", [])
             hints = data.get("hints", [])
             st.session_state.missions = list(zip(missions, hints))
 
-            # 3. Build PDF (Fixing horizontal space error)
+            # 4. Build PDF
             pdf = FPDF()
             
             # Page 1: Photo and Story
             pdf.add_page()
             pdf.image(BytesIO(uploaded_file.getvalue()), x=10, y=10, w=180)
-            # Ensure we move the "Y" cursor well below the image
             pdf.set_y(140) 
             pdf.set_font("Helvetica", size=12)
             
             safe_story = st.session_state.story_text.encode('latin-1', 'replace').decode('latin-1')
-            # Using width=0 tells the PDF to use all available horizontal space automatically
             pdf.multi_cell(0, 10, txt=safe_story)
             
             # Page 2: Missions
-            pdf.add_page()
-            pdf.set_font("Helvetica", 'B', 16)
-            pdf.cell(0, 10, "Target: Seek and Find Missions!", ln=True)
-            pdf.ln(5)
-            
-            for i, (m, h) in enumerate(st.session_state.missions):
-                pdf.set_font("Helvetica", 'B', 12)
-                m_text = f"Mission {i+1}: {m}"
-                pdf.multi_cell(0, 10, txt=m_text.encode('latin-1', 'replace').decode('latin-1'))
-                
-                pdf.set_font("Helvetica", size=12)
-                h_text = f"Hint: {h}"
-                pdf.multi_cell(0, 10, txt=h_text.encode('latin-1', 'replace').decode('latin-1'))
+            if st.session_state.missions:
+                pdf.add_page()
+                pdf.set_font("Helvetica", 'B', 16)
+                pdf.cell(0, 10, "Target: Seek and Find Missions!", ln=True)
                 pdf.ln(5)
+                
+                for i, (m, h) in enumerate(st.session_state.missions):
+                    pdf.set_font("Helvetica", 'B', 12)
+                    m_text = f"Mission {i+1}: {m}"
+                    pdf.multi_cell(0, 10, txt=m_text.encode('latin-1', 'replace').decode('latin-1'))
+                    
+                    pdf.set_font("Helvetica", size=12)
+                    h_text = f"Hint: {h}"
+                    pdf.multi_cell(0, 10, txt=h_text.encode('latin-1', 'replace').decode('latin-1'))
+                    pdf.ln(5)
 
             st.session_state.pdf_data = bytes(pdf.output())
 
     except Exception as e:
         st.error(f"Technical issue: {e}")
 
-# 4. Display Results
+# 5. Display Results
 if uploaded_file:
     st.image(uploaded_file, use_container_width=True)
 
