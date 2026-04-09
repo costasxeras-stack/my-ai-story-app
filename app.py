@@ -28,11 +28,10 @@ if uploaded_file and st.button("Generate My Story"):
             char_res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Describe the child's hair and outfit colors only. Be brief."},
+                    {"type": "text", "text": "Describe the child's hair and outfit colors only. Example: 'brown hair and a red sweater'."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]}]
             )
-            # FIX: Added [0] to pick the first choice from the list
             hero_style = char_res.choices[0].message.content
 
         # STEP B: Write Story 
@@ -41,8 +40,7 @@ if uploaded_file and st.button("Generate My Story"):
                 model="gpt-4o",
                 messages=[{"role": "user", "content": f"Write a 5-page story about a hero with {hero_style}. Put the word 'BREAK' between every page."}]
             )
-            # FIX: Added [0] to pick the first choice from the list
-            raw_text = story_res.choices[0].message.content
+            raw_text = story_res[0].message.content
             story_pages = [p.strip() for p in raw_text.split('BREAK') if len(p.strip()) > 10][:5]
 
         # STEP C: Generate Images & Build PDF
@@ -51,12 +49,18 @@ if uploaded_file and st.button("Generate My Story"):
             st.markdown(f"### Page {i+1}")
             
             with st.spinner(f"Painting illustration {i+1}..."):
+                # SAFETY SANITIZER: We ask GPT to turn the page text into a SAFE art prompt
+                safe_prompt_res = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": f"Rewrite this as a safe, generic DALL-E prompt for a watercolor children's book. Remove all mentions of real people or specific kids. Use 'a cute character with {hero_style}': {page_text[:200]}"}]
+                )
+                safe_art_prompt = safe_prompt_res.choices[0].message.content
+
                 img_gen = client.images.generate(
                     model="dall-e-3",
-                    prompt=f"Children's book watercolor style: {page_text[:300]}. Character traits: {hero_style}.",
+                    prompt=f"Whimsical watercolor illustration: {safe_art_prompt}",
                     n=1, size="1024x1024"
                 )
-                # FIX: Added [0] to pick the first image from the list
                 img_url = img_gen.data[0].url
                 st.image(img_url)
             
