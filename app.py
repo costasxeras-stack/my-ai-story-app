@@ -8,6 +8,7 @@ import json
 # 1. Setup
 st.set_page_config(page_title="Magic Scan & Seek", page_icon="🔍")
 st.title("🔍 Magic Scan & Seek")
+st.info("Upload any photo (playroom, park, backyard) to start the adventure!")
 
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Missing API Key! Add it to Streamlit Secrets.")
@@ -22,29 +23,34 @@ if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
 
-# 2. Upload Interface
-uploaded_file = st.file_uploader("Upload your forest photo", type=['jpg', 'png', 'jpeg'])
+# 2. Upload Interface (Universal Label)
+uploaded_file = st.file_uploader("Upload a photo to explore", type=['jpg', 'png', 'jpeg'])
 
 if uploaded_file and st.button("Generate Adventure"):
     try:
+        st.session_state.story_text = "" # Reset
         base64_img = encode_image(uploaded_file)
         
         with st.status("🔍 Scanning every pixel for real objects..."):
             res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a precise vision assistant. You must ONLY identify objects that are physically present in the pixels of the image. Do not invent objects."},
+                    {"role": "system", "content": "You are a precise vision assistant. Identify ONLY objects physically present in the pixels. Return JSON with 'story', 'missions' (the question), and 'hints' (where the object is)."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "Task: 1. Identify 5 specific objects clearly visible in this photo. 2. Write a short toddler story using only these objects. 3. Create 5 'Seek and Find' missions for these exact objects. Return ONLY a JSON object with keys 'story' and 'missions'."},
+                        {"type": "text", "text": "Task: 1. Identify 5 specific objects in this photo. 2. Write a toddler story. 3. Create 5 'Seek and Find' missions with a hint for each. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            data = json.loads(res.choices[0].message.content)
+            data = json.loads(res.choices.message.content)
             st.session_state.story_text = data.get("story", "")
-            st.session_state.missions = data.get("missions", [])
+            
+            # We combine mission and hint for the UI
+            missions = data.get("missions", [])
+            hints = data.get("hints", [])
+            st.session_state.missions = list(zip(missions, hints))
 
             # 3. Build PDF
             pdf = FPDF()
@@ -66,9 +72,11 @@ if uploaded_file:
 if st.session_state.story_text:
     st.header("📖 The Story")
     st.write(st.session_state.story_text)
+    
     st.header("🎯 Seek and Find Missions")
-    for m in st.session_state.missions:
-        st.write(f"👉 {m}")
+    for i, (m, h) in enumerate(st.session_state.missions):
+        with st.expander(f"👉 Mission {i+1}: {m}"):
+            st.write(f"💡 **Hint for Mom:** {h}")
 
 if st.session_state.pdf_data:
     st.download_button("📥 Download PDF", data=st.session_state.pdf_data, file_name="adventure.pdf")
