@@ -22,8 +22,12 @@ if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
 
-# 2. Upload
+# 2. Upload Interface
 uploaded_file = st.file_uploader("Upload any photo to start", type=['jpg', 'png', 'jpeg'])
+
+# --- FIX: Show the photo immediately so it never disappears ---
+if uploaded_file:
+    st.image(uploaded_file, caption="The Adventure World", use_container_width=True)
 
 if uploaded_file and st.button("Generate Adventure"):
     try:
@@ -34,45 +38,44 @@ if uploaded_file and st.button("Generate Adventure"):
                 messages=[
                     {"role": "system", "content": "You are a literal vision assistant. ONLY use objects clearly visible in the pixels. Return JSON with 'story', 'missions', and 'hints'."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "Step 1: Look at the photo and identify 5 actual objects and their colors. Step 2: Write a toddler story using ONLY these objects. Step 3: Create 5 missions with hints. Return ONLY JSON."},
+                        {"type": "text", "text": "Step 1: Identify 5 actual objects. Step 2: Write a toddler story using ONLY those objects. Step 3: Create 5 numbered missions with hints. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            raw_content = res.choices[0].message.content
+            raw_content = res.choices.message.content
             data = json.loads(raw_content)
             st.session_state.story_text = data.get("story", "")
             st.session_state.missions = list(zip(data.get("missions", []), data.get("hints", [])))
 
-            # 3. Build PDF (The Layout Fix)
+            # 3. Build PDF
             pdf = FPDF()
             
             # Page 1: Photo + Story
             pdf.add_page()
             pdf.image(BytesIO(uploaded_file.getvalue()), x=10, y=10, w=180)
-            pdf.set_xy(10, 150) # Reset pen to the left margin
+            pdf.set_xy(10, 150)
             pdf.set_font("Helvetica", size=12)
             safe_story = st.session_state.story_text.encode('latin-1', 'replace').decode('latin-1')
             pdf.multi_cell(190, 10, txt=safe_story)
             
-            # Page 2: Missions (The Alignment Fix)
+            # Page 2: Missions
             if st.session_state.missions:
                 pdf.add_page()
                 pdf.set_font("Helvetica", 'B', 16)
                 pdf.cell(190, 10, "Seek and Find Missions!", ln=True)
                 pdf.ln(10)
                 
-                for m, h in st.session_state.missions:
-                    # Reset X to 10 for every line to prevent the "right-sliding" text
+                for i, (m, h) in enumerate(st.session_state.missions):
                     pdf.set_x(10)
                     pdf.set_font("Helvetica", 'B', 12)
-                    pdf.multi_cell(180, 8, txt=f"Target: {m}".encode('latin-1', 'replace').decode('latin-1'))
+                    pdf.multi_cell(180, 8, txt=f"{i+1}. Target: {m}".encode('latin-1', 'replace').decode('latin-1'))
                     
-                    pdf.set_x(10) # Reset X again for the hint
+                    pdf.set_x(10)
                     pdf.set_font("Helvetica", 'I', 11)
-                    pdf.multi_cell(180, 7, txt=f"Hint for Mom: {h}".encode('latin-1', 'replace').decode('latin-1'))
+                    pdf.multi_cell(180, 7, txt=f"   Hint for Mom: {h}".encode('latin-1', 'replace').decode('latin-1'))
                     pdf.ln(5)
 
             st.session_state.pdf_data = bytes(pdf.output())
@@ -81,13 +84,11 @@ if uploaded_file and st.button("Generate Adventure"):
     except Exception as e:
         st.error(f"Technical issue: {e}")
 
-# 4. Display
-if uploaded_file:
-    st.image(uploaded_file, use_container_width=True)
-
+# 4. Display Results underneath the persistent photo
 if st.session_state.story_text:
     st.header("📖 The Story")
     st.write(st.session_state.story_text)
+    
     st.header("🎯 Seek and Find Missions")
     for i, (m, h) in enumerate(st.session_state.missions):
         with st.expander(f"👉 Mission {i+1}: {m}"):
