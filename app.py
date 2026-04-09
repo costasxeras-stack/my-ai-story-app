@@ -44,7 +44,8 @@ if uploaded_file and st.button("Generate Adventure"):
                 response_format={"type": "json_object"}
             )
             
-            raw_content = res.choices.message.content
+            # THE CRITICAL FIX: Added [0] to handle the list correctly
+            raw_content = res.choices[0].message.content
             data = json.loads(raw_content)
             
             # Helper to keep text human-friendly
@@ -59,9 +60,10 @@ if uploaded_file and st.button("Generate Adventure"):
             
             formatted_missions = []
             for i in range(len(objs)):
-                q = f"Can you see the {objs[i]} in the photo?"
-                h = hints[i] if i < len(hints) else "Look closely at the colors!"
-                formatted_missions.append((clean(q), clean(h)))
+                obj_name = clean(objs[i])
+                q = f"Can you see the {obj_name} in the photo?"
+                h = clean(hints[i]) if i < len(hints) else "Look closely at the colors!"
+                formatted_missions.append((q, h))
             
             st.session_state.missions = formatted_missions
 
