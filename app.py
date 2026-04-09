@@ -15,7 +15,8 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-if "story_text" not in st.session_state: st.session_text = ""
+# Initialize memory (Fixed the typo here)
+if "story_text" not in st.session_state: st.session_state.story_text = ""
 if "missions" not in st.session_state: st.session_state.missions = []
 if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
 
@@ -34,23 +35,23 @@ if uploaded_file and st.button("Generate Adventure"):
             res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a precise vision assistant. Identify 5 objects physically present in the pixels. Return ONLY a JSON object with 'story', 'missions' (the question), and 'hints' (where the object is)."},
+                    {"role": "system", "content": "You are a precise vision assistant. Identify 5 objects physically present. Return ONLY JSON with 'story', 'missions' (the question), and 'hints' (where the object is)."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "1. Identify 5 objects in this photo. 2. Write a toddler story. 3. Create 5 'Seek and Find' missions with a hint for each. Return ONLY JSON."},
+                        {"type": "text", "text": "1. Identify 5 objects. 2. Write a toddler story. 3. Create 5 'Seek and Find' missions with hints. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            data = json.loads(res.choices.message.content)
+            data = json.loads(res.choices[0].message.content)
             st.session_state.story_text = data.get("story", "")
             
             missions = data.get("missions", [])
             hints = data.get("hints", [])
             st.session_state.missions = list(zip(missions, hints))
 
-            # 3. Build PDF (Updated to include Story AND Missions)
+            # 3. Build PDF
             pdf = FPDF()
             
             # Page 1: Photo and Story
@@ -61,24 +62,20 @@ if uploaded_file and st.button("Generate Adventure"):
             safe_story = st.session_state.story_text.encode('latin-1', 'replace').decode('latin-1')
             pdf.multi_cell(0, 10, txt=safe_story)
             
-            # Page 2: Missions and Hints
+            # Page 2: Missions
             pdf.add_page()
             pdf.set_font("Helvetica", 'B', 16)
             pdf.cell(0, 10, "Target: Seek and Find Missions!", ln=True)
             pdf.ln(10)
-            pdf.set_font("Helvetica", size=12)
             
             for i, (m, h) in enumerate(st.session_state.missions):
-                mission_line = f"Mission {i+1}: {m}"
-                hint_line = f"Hint: {h}"
-                
-                # Add Mission Text
                 pdf.set_font("Helvetica", 'B', 12)
-                pdf.multi_cell(0, 10, txt=mission_line.encode('latin-1', 'replace').decode('latin-1'))
+                m_text = f"Mission {i+1}: {m}"
+                pdf.multi_cell(0, 10, txt=m_text.encode('latin-1', 'replace').decode('latin-1'))
                 
-                # Add Hint Text
                 pdf.set_font("Helvetica", size=12)
-                pdf.multi_cell(0, 10, txt=hint_line.encode('latin-1', 'replace').decode('latin-1'))
+                h_text = f"Hint: {h}"
+                pdf.multi_cell(0, 10, txt=h_text.encode('latin-1', 'replace').decode('latin-1'))
                 pdf.ln(5)
 
             st.session_state.pdf_data = bytes(pdf.output())
