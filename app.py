@@ -32,6 +32,7 @@ if uploaded_file and st.button("Generate My Story"):
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]}]
             )
+            # FIX: Using dot notation (choices[0].message.content) to avoid 'not subscriptable' error
             hero_style = char_res.choices[0].message.content
 
         # STEP B: Write Story 
@@ -40,7 +41,7 @@ if uploaded_file and st.button("Generate My Story"):
                 model="gpt-4o",
                 messages=[{"role": "user", "content": f"Write a 5-page story about a hero with {hero_style}. Put the word 'BREAK' between every page."}]
             )
-            raw_text = story_res[0].message.content
+            raw_text = story_res.choices[0].message.content
             story_pages = [p.strip() for p in raw_text.split('BREAK') if len(p.strip()) > 10][:5]
 
         # STEP C: Generate Images & Build PDF
@@ -49,27 +50,29 @@ if uploaded_file and st.button("Generate My Story"):
             st.markdown(f"### Page {i+1}")
             
             with st.spinner(f"Painting illustration {i+1}..."):
-                # SAFETY SANITIZER: We ask GPT to turn the page text into a SAFE art prompt
+                # SAFETY FIX: Clean the prompt using a second AI call to avoid policy violations
                 safe_prompt_res = client.chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": f"Rewrite this as a safe, generic DALL-E prompt for a watercolor children's book. Remove all mentions of real people or specific kids. Use 'a cute character with {hero_style}': {page_text[:200]}"}]
+                    messages=[{"role": "user", "content": f"Convert this to a safe DALL-E prompt for a watercolor children's book illustration. Character is a generic person with {hero_style}. Scene: {page_text[:200]}"}]
                 )
                 safe_art_prompt = safe_prompt_res.choices[0].message.content
 
                 img_gen = client.images.generate(
                     model="dall-e-3",
-                    prompt=f"Whimsical watercolor illustration: {safe_art_prompt}",
+                    prompt=f"Whimsical watercolor: {safe_art_prompt}",
                     n=1, size="1024x1024"
                 )
                 img_url = img_gen.data[0].url
                 st.image(img_url)
             
+            # DISPLAY TEXT ON SCREEN
             st.write(page_text)
             st.divider()
 
-            # Add to PDF
+            # ADD TO PDF
             pdf.add_page()
             pdf.set_font("Helvetica", size=12)
+            # PDF FIX: Remove special characters to prevent white pages
             pdf_safe_text = page_text.encode('latin-1', 'replace').decode('latin-1')
             pdf.multi_cell(0, 10, txt=pdf_safe_text)
 
