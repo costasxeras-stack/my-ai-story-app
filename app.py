@@ -5,7 +5,7 @@ from io import BytesIO
 import base64
 
 # 1. Page Configuration
-st.set_page_config(page_title="Magic Photo Bedtime Story", page_icon="🌙")
+st.set_page_config(page_title="Magic Bedtime Story", page_icon="🌙")
 st.title("🌙 Magic Photo Bedtime Story")
 
 if "OPENAI_API_KEY" not in st.secrets:
@@ -14,7 +14,6 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Use Session State to keep the story on screen
 if "story_pages" not in st.session_state:
     st.session_state.story_pages = []
 if "pdf_data" not in st.session_state:
@@ -24,57 +23,57 @@ def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
 
 # 2. Upload Section
-uploaded_file = st.file_uploader("Upload a photo of your child in their room", type=['jpg', 'png', 'jpeg'])
+uploaded_file = st.file_uploader("Upload a photo of the hero's room", type=['jpg', 'png', 'jpeg'])
 
 if uploaded_file and st.button("Generate the Magic"):
     try:
         st.session_state.story_pages = []
         base64_img = encode_image(uploaded_file)
         
-        with st.status("🔮 Scanning the room for toys and magic..."):
-            # We use 'detail: high' and a strict 'ignore humans' prompt to bypass privacy filters
+        with st.status("🔮 Finding the magic in your photo..."):
+            # Prompt designed to bypass privacy filters by focusing on background
             vision_res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Ignore any people. Look at the background and toys only. List 3 objects you see. Then write a 5-page bedtime story where these objects come to life around the child. Use 'BREAK' between pages."},
+                    {"type": "text", "text": "Ignore people. Describe 3 specific objects in the background. Write a 5-page bedtime story where these items come to life. Put 'BREAK' between pages."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
                 ]}]
             )
-            # FIX: Using .choices.message.content to prevent 'list' and 'subscriptable' errors
             raw_text = vision_res.choices[0].message.content
             st.session_state.story_pages = [p.strip() for p in raw_text.split('BREAK') if len(p.strip()) > 10][:5]
 
-            # 3. Build the PDF (One Photo at the top, then text)
+            # 3. Build the PDF
             pdf = FPDF()
-            img_bytes = BytesIO(uploaded_file.getvalue())
+            # FIX: Convert the uploaded file to BytesIO
+            img_data = BytesIO(uploaded_file.getvalue())
 
-            # Add the Photo once on the very first page
+            # Add Photo once on the first page
             pdf.add_page()
-            pdf.image(img_stream=img_bytes, x=10, y=10, w=190)
-            pdf.ln(160) # Move cursor down for first page text
+            # FIX: Use 'name' or no keyword instead of 'img_stream'
+            pdf.image(img_data, x=10, y=10, w=190)
+            pdf.ln(160) 
             
             for i, page_text in enumerate(st.session_state.story_pages):
-                if i > 0: pdf.add_page() # Add a new page for every story part after the first
+                if i > 0: pdf.add_page() 
                 pdf.set_font("Helvetica", size=12)
-                # Clean text to prevent "White Page" errors
                 safe_text = page_text.encode('latin-1', 'replace').decode('latin-1')
                 pdf.multi_cell(0, 10, txt=safe_text)
 
-            st.session_state.pdf_data = bytes(pdf.output())
+            st.session_state.pdf_data = pdf.output()
 
     except Exception as e:
         st.error(f"Error: {e}")
 
-# 4. Show the results on the Screen
+# 4. Show Results
 if uploaded_file:
-    st.image(uploaded_file, caption="The Hero's World", use_container_width=True)
+    st.image(uploaded_file, caption="The Magic Room", use_container_width=True)
 
 if st.session_state.story_pages:
     st.divider()
     for i, text in enumerate(st.session_state.story_pages):
-        st.markdown(f"**Chapter {i+1}**")
+        st.markdown(f"**Page {i+1}**")
         st.write(text)
-        st.write("") # Extra spacing
+        st.divider()
 
 # 5. Download Button
 if st.session_state.pdf_data:
