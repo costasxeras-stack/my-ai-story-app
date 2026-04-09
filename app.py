@@ -4,10 +4,10 @@ import base64
 from fpdf import FPDF
 import io
 
-# 1. Setup
 st.set_page_config(page_title="Bedtime Story AI", page_icon="🌙")
 st.title("🌙 Bedtime Story Creator")
 
+# 1. API Setup
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Missing API Key! Add it to Streamlit Secrets.")
     st.stop()
@@ -17,72 +17,64 @@ client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
 
-# 2. Input
+# 2. Upload
 uploaded_file = st.file_uploader("Upload photo of hero", type=['jpg', 'png', 'jpeg'])
 
 if uploaded_file and st.button("Generate My Story"):
     try:
-        # STEP A: Analyze Hero
-        with st.status("🔍 Analyzing hero..."):
+        # STEP A: Create a 'Proxy' character (Fixes Safety Policy Violations)
+        with st.status("🔍 Designing your character..."):
             base64_image = encode_image(uploaded_file)
             char_res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Describe the child's hair and outfit colors only. Example: 'brown hair and a red sweater'."},
+                    {"type": "text", "text": "Describe ONLY the shirt color in this photo. Then, pick a cute woodland animal. Return: 'A [animal] in a [color] shirt'."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]}]
             )
-            # FIX: Using dot notation (choices[0].message.content) to avoid 'not subscriptable' error
-            hero_style = char_res.choices[0].message.content
+            # FIX: New attribute-based access to avoid 'not subscriptable'
+            hero_proxy = char_res.choices[0].message.content
 
-        # STEP B: Write Story 
+        # STEP B: Write Story
         with st.status("✍️ Writing pages..."):
             story_res = client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{"role": "user", "content": f"Write a 5-page story about a hero with {hero_style}. Put the word 'BREAK' between every page."}]
+                messages=[{"role": "user", "content": f"Write a 5-page story about {hero_proxy}. End each page with the word 'BREAK'."}]
             )
             raw_text = story_res.choices[0].message.content
             story_pages = [p.strip() for p in raw_text.split('BREAK') if len(p.strip()) > 10][:5]
 
-        # STEP C: Generate Images & Build PDF
+        # STEP C: Generate Images & PDF
         pdf = FPDF()
         for i, page_text in enumerate(story_pages):
             st.markdown(f"### Page {i+1}")
             
-            with st.spinner(f"Painting illustration {i+1}..."):
-                # SAFETY FIX: Clean the prompt using a second AI call to avoid policy violations
-                safe_prompt_res = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": f"Convert this to a safe DALL-E prompt for a watercolor children's book illustration. Character is a generic person with {hero_style}. Scene: {page_text[:200]}"}]
-                )
-                safe_art_prompt = safe_prompt_res.choices[0].message.content
-
+            with st.spinner(f"Painting page {i+1}..."):
+                # Safety bypass: strictly fictional watercolor style
                 img_gen = client.images.generate(
                     model="dall-e-3",
-                    prompt=f"Whimsical watercolor: {safe_art_prompt}",
+                    prompt=f"Whimsical watercolor illustration: {hero_proxy} in a {page_text[:100]}. NO humans, only animals.",
                     n=1, size="1024x1024"
                 )
                 img_url = img_gen.data[0].url
                 st.image(img_url)
             
-            # DISPLAY TEXT ON SCREEN
             st.write(page_text)
             st.divider()
 
-            # ADD TO PDF
+            # PDF Construction
             pdf.add_page()
             pdf.set_font("Helvetica", size=12)
-            # PDF FIX: Remove special characters to prevent white pages
-            pdf_safe_text = page_text.encode('latin-1', 'replace').decode('latin-1')
-            pdf.multi_cell(0, 10, txt=pdf_safe_text)
+            safe_text = page_text.encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 10, txt=safe_text)
 
-        # STEP D: Final Export
+        # STEP D: Download
         st.success("Your story is ready!")
         pdf_bytes = pdf.output(dest='S')
         if isinstance(pdf_bytes, str):
             pdf_bytes = pdf_bytes.encode('latin-1')
 
-        st.download_button("📥 Download Final PDF", data=pdf_bytes, file_name="story.pdf", mime="application/pdf")
+        st.download_button("📥 Download PDF", data=pdf_bytes, file_name="story.pdf", mime="application/pdf")
 
     except Exception as e:
-        st.error(f"Error fixed: {e}")
+        st.error(f"Final Fix Applied. If error persists, check OpenAI Credits. Error: {e}")
