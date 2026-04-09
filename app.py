@@ -1,12 +1,11 @@
 import streamlit as st
 import openai
-import base64
 from fpdf import FPDF
 from io import BytesIO
 
 # 1. Setup
-st.set_page_config(page_title="Magic Bedtime Story", page_icon="🌙")
-st.title("🌙 Magic Bedtime Story")
+st.set_page_config(page_title="Magic Adventure & Learn", page_icon="🚀")
+st.title("🚀 Magic Adventure & Learn")
 
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Missing API Key! Add it to Streamlit Secrets.")
@@ -14,70 +13,78 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Initialize memory for persistent display
+# Memory
 if "story_pages" not in st.session_state:
     st.session_state.story_pages = []
+if "flashcards" not in st.session_state:
+    st.session_state.flashcards = []
 if "pdf_ready" not in st.session_state:
     st.session_state.pdf_ready = None
 
-def encode_image(uploaded_file):
-    return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
+# 2. Inputs
+uploaded_file = st.file_uploader("1. Upload hero's photo", type=['jpg', 'png', 'jpeg'])
+hero_name = st.text_input("2. Hero's Name", "Leo")
+magic_items = st.text_input("3. What's in the room?", "a blue truck and a soft rug")
 
-# 2. Input
-uploaded_file = st.file_uploader("1. Upload child's photo", type=['jpg', 'png', 'jpeg'])
-hero_name = st.text_input("2. Child's Name", "Leo")
-
-if uploaded_file and st.button("Generate the Magic"):
+if uploaded_file and st.button("Start Adventure"):
     try:
         st.session_state.story_pages = []
-        base64_img = encode_image(uploaded_file)
+        st.session_state.flashcards = []
         
-        with st.status("🔮 Scanning the room for magic..."):
-            # BYPASS PROMPT: Asks for background context to avoid privacy refusals
-            vision_res = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": [
-                    {"type": "text", "text": f"Analyze this image. Identify 3 specific objects in the room (ignoring the child's identity). Then, write a 5-page bedtime story about {hero_name} where those exact objects come to life. Put 'BREAK' between pages."},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
-                ]}]
+        with st.status("🪄 Preparing adventure and learning games..."):
+            # A. Generate Story + Flashcards in one go
+            prompt = f"Write a 3-page adventure for {hero_name} with {magic_items}. Then, create 3 'Magic Learning' missions. Format: Page 1 | Page 2 | Page 3 | Mission 1 | Mission 2 | Mission 3"
+            res = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
             )
-            # The 'choices[0]' fix ensures no 'list' errors
-            full_text = vision_res.choices[0].message.content
-            st.session_state.story_pages = [p.strip() for p in full_text.split('BREAK') if len(p.strip()) > 10][:5]
+            raw_parts = res.choices.message.content.split('|')
+            
+            # Separate Story and Missions
+            story_data = [p.strip() for p in raw_parts[:3]]
+            mission_data = [p.strip() for p in raw_parts[3:6]]
 
-            # 3. Build the PDF
+            # B. Build PDF and Audio
             pdf = FPDF()
             img_data = uploaded_file.getvalue()
 
-            for i, page_text in enumerate(st.session_state.story_pages):
-                pdf.add_page()
-                # Place the original photo at the top of every page
-                pdf.image(BytesIO(img_data), x=10, y=10, w=190)
-                pdf.set_y(155) 
-                pdf.set_font("Helvetica", size=11)
-                safe_text = page_text.encode('latin-1', 'replace').decode('latin-1')
-                pdf.multi_cell(0, 10, txt=safe_text)
+            for i, text in enumerate(story_data):
+                # Voice Narration
+                audio_res = client.audio.speech.create(model="tts-1", voice="nova", input=text)
+                st.session_state.story_pages.append({"text": text, "audio": audio_res.content})
 
+                # PDF Page
+                pdf.add_page()
+                pdf.image(BytesIO(img_data), x=10, y=10, w=190)
+                pdf.ln(160)
+                pdf.set_font("Helvetica", size=12)
+                pdf.multi_cell(0, 10, txt=text.encode('latin-1', 'replace').decode('latin-1'))
+
+            st.session_state.flashcards = mission_data
             st.session_state.pdf_ready = bytes(pdf.output())
 
     except Exception as e:
-        st.error(f"Technical Error: {e}")
+        st.error(f"Error: {e}")
 
-# 4. Display Result
+# 3. Display
 if uploaded_file:
-    st.image(uploaded_file, caption="The Hero's Magic Room", use_container_width=True)
+    st.image(uploaded_file, use_container_width=True)
 
-if st.session_state.story_pages:
+# THE STORY
+for i, page in enumerate(st.session_state.story_pages):
+    st.markdown(f"### Chapter {i+1}")
+    st.audio(page["audio"], format="audio/mp3")
+    st.write(page["text"])
     st.divider()
-    for i, text in enumerate(st.session_state.story_pages):
-        st.markdown(f"**Chapter {i+1}**")
-        st.write(text)
-        st.divider()
 
-# 5. Download Button
+# THE FLASHCARDS (Learning Feature)
+if st.session_state.flashcards:
+    st.header("🌟 Magic Learning Missions")
+    cols = st.columns(3)
+    for i, mission in enumerate(st.session_state.flashcards):
+        with cols[i]:
+            st.info(f"**Mission {i+1}**\n\n{mission}")
+
+# 4. Download
 if st.session_state.pdf_ready:
-    st.download_button(
-        label="📥 Download PDF Story", 
-        data=st.session_state.pdf_ready, 
-        file_name=f"{hero_name}_story.pdf"
-    )
+    st.download_button("📥 Download Adventure PDF", data=st.session_state.pdf_ready, file_name="adventure.pdf")
