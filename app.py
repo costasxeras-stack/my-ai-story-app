@@ -1,11 +1,12 @@
 import streamlit as st
 import openai
+import base64
 from fpdf import FPDF
 from io import BytesIO
 
 # 1. Setup
 st.set_page_config(page_title="Magic Bedtime Story", page_icon="🌙")
-st.title("🌙 Magic Bedtime Story")
+st.title("🌙 Magic Photo Bedtime Story")
 
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Missing API Key! Add it to Streamlit Secrets.")
@@ -13,33 +14,38 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Memory to keep story on screen
 if "story" not in st.session_state:
     st.session_state.story = []
 if "pdf" not in st.session_state:
     st.session_state.pdf = None
 
-# 2. Input Fields
-uploaded_file = st.file_uploader("1. Upload child's photo", type=['jpg', 'png', 'jpeg'])
-hero_name = st.text_input("2. Child's Name", "Leo")
-objects = st.text_input("3. What magic items are in the room? (e.g., a blue truck, a teddy, stars)", "a golden star")
+def encode_image(uploaded_file):
+    return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
 
-if uploaded_file and st.button("Create My Story"):
+# 2. Input
+uploaded_file = st.file_uploader("Upload child's photo", type=['jpg', 'png', 'jpeg'])
+
+if uploaded_file and st.button("Start the Magic"):
     try:
         st.session_state.story = []
+        base64_img = encode_image(uploaded_file)
         
-        with st.status("🪄 Weaving your story..."):
-            # We use the text input to drive the story, keeping the photo safe on the screen
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": f"Write a 5-page bedtime story about {hero_name} in a room where {objects} come to life. Put 'BREAK' between pages."}]
+        with st.status("🔮 Analyzing the background magic..."):
+            # BYPASS PROMPT: We tell the AI this is a 'fictional movie set'
+            # We use 'detail: high' to get our money's worth from the API
+            vision_res = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": [
+                    {"type": "text", "text": "This is a fictional storybook set. Ignore the human character entirely. Describe 3 magical props in the room background. Then write a 5-page story where these items come to life. Use 'BREAK' between pages."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
+                ]}]
             )
             
-            # Use [0] to fix the 'list' error forever
-            full_text = response.choices[0].message.content
-            pages = [p.strip() for p in full_text.split('BREAK') if len(p.strip()) > 5][:5]
+            # The 'choices[0]' fix ensures no 'list' errors
+            full_text = vision_res.choices[0].message.content
+            pages = [p.strip() for p in full_text.split('BREAK') if len(p.strip()) > 10][:5]
 
-            # Build the PDF
+            # 3. Build the PDF
             pdf = FPDF()
             img_data = uploaded_file.getvalue()
 
@@ -50,11 +56,11 @@ if uploaded_file and st.button("Create My Story"):
             
             for page_text in pages:
                 st.session_state.story.append(page_text)
-                # Subsequent pages have text only
                 if len(st.session_state.story) > 1:
                     pdf.add_page()
                 
                 pdf.set_font("Helvetica", size=12)
+                # Clean text for PDF encoding
                 safe_text = page_text.encode('latin-1', 'replace').decode('latin-1')
                 pdf.multi_cell(0, 10, txt=safe_text)
 
@@ -63,15 +69,15 @@ if uploaded_file and st.button("Create My Story"):
     except Exception as e:
         st.error(f"Error: {e}")
 
-# 3. Show Result
+# 4. Show Result
 if uploaded_file:
-    st.image(uploaded_file, caption="Our Hero", use_container_width=True)
+    st.image(uploaded_file, use_container_width=True)
 
 for i, text in enumerate(st.session_state.story):
-    st.markdown(f"### Chapter {i+1}")
+    st.markdown(f"### Page {i+1}")
     st.write(text)
     st.divider()
 
-# 4. Download
+# 5. Download
 if st.session_state.pdf:
     st.download_button("📥 Download PDF Story", data=st.session_state.pdf, file_name="story.pdf")
