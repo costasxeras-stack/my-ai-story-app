@@ -25,31 +25,41 @@ def encode_image(uploaded_file):
 # 2. Upload Interface
 uploaded_file = st.file_uploader("Upload any photo to start", type=['jpg', 'png', 'jpeg'])
 
-# FIX: Keep photo visible at the top at all times
 if uploaded_file:
     st.image(uploaded_file, caption="The Adventure World", use_container_width=True)
 
 if uploaded_file and st.button("Generate Adventure"):
     try:
         base64_img = encode_image(uploaded_file)
-        with st.status("🪄 Analyzing real objects in your photo...", expanded=True) as status:
+        with st.status("🪄 Weaving a human story...", expanded=True) as status:
             res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a literal vision assistant. ONLY use objects clearly visible. Return JSON with 'story', 'missions', and 'hints'."},
+                    {"role": "system", "content": "You are a children's book author. Return JSON with 'story' (string), 'missions' (list of strings), and 'hints' (list of strings). No nested objects inside the lists."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "Step 1: Identify 5 actual objects. Step 2: Write a toddler story. Step 3: Create 5 numbered missions with hints. Return ONLY JSON."},
+                        {"type": "text", "text": "Step 1: Identify 5 objects. Step 2: Write a toddler story. Step 3: Create 5 simple missions with hints. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            # THE CRITICAL FIX: Added [0] back to prevent the 'list' error
             raw_content = res.choices[0].message.content
             data = json.loads(raw_content)
-            st.session_state.story_text = data.get("story", "")
-            st.session_state.missions = list(zip(data.get("missions", []), data.get("hints", [])))
+            
+            # Helper to clean any accidental JSON brackets from strings
+            def clean(val):
+                if isinstance(val, dict):
+                    # If AI sent {'mission': 'text'}, just grab the 'text'
+                    return list(val.values())[0]
+                return str(val)
+
+            st.session_state.story_text = clean(data.get("story", ""))
+            
+            # Clean missions and hints specifically
+            m_list = [clean(m) for m in data.get("missions", [])]
+            h_list = [clean(h) for h in data.get("hints", [])]
+            st.session_state.missions = list(zip(m_list, h_list))
 
             # 3. Build PDF
             pdf = FPDF()
@@ -80,7 +90,7 @@ if uploaded_file and st.button("Generate Adventure"):
     except Exception as e:
         st.error(f"Technical issue: {e}")
 
-# 4. Display Results underneath
+# 4. Display Results
 if st.session_state.story_text:
     st.header("📖 The Story")
     st.write(st.session_state.story_text)
