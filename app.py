@@ -15,6 +15,7 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
+# Initialize memory so data survives button clicks
 if "story_text" not in st.session_state: st.session_state.story_text = ""
 if "missions" not in st.session_state: st.session_state.missions = []
 if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
@@ -34,19 +35,25 @@ if uploaded_file and st.button("Generate Adventure"):
             res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Return ONLY JSON with 'story', 'missions' (list), and 'hints' (list)."},
+                    {"role": "system", "content": "You are a precise vision assistant. Return ONLY valid JSON with keys 'story', 'missions' (list), and 'hints' (list)."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "Identify 5 objects. Write a story and 5 missions with hints. Return ONLY JSON."},
+                        {"type": "text", "text": "Identify 5 objects. Write a toddler story and 5 missions with hints. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            # FIXED: Correct choice access
-            raw_json = res.choices[0].message.content
-            data = json.loads(raw_json)
+            # --- THE "ALL-IN-ONE" FIXES START HERE ---
+            # Fix 1: Use .choices[0].message.content (Correct Access)
+            raw_content = res.choices[0].message.content
             
+            # Fix 2: Check if content is empty (Prevents NoneType Error)
+            if not raw_content:
+                st.error("AI returned an empty response. Please try again.")
+                st.stop()
+                
+            data = json.loads(raw_content)
             st.session_state.story_text = data.get("story", "")
             missions = data.get("missions", [])
             hints = data.get("hints", [])
@@ -57,15 +64,15 @@ if uploaded_file and st.button("Generate Adventure"):
             
             # PAGE 1: Photo + Story
             pdf.add_page()
+            # Fix 3: Image width slightly smaller for safety
             pdf.image(BytesIO(uploaded_file.getvalue()), x=10, y=10, w=180)
             
-            # THE CRITICAL FIX: Manually reset the cursor to a safe spot with full width
+            # Fix 4: Set XY to 150 to ensure enough horizontal/vertical space
             pdf.set_xy(10, 150) 
             pdf.set_font("Helvetica", size=12)
             
-            # Clean text for PDF
+            # Fix 5: latin-1 replace handles curly quotes and emojis that crash FPDF
             safe_story = st.session_state.story_text.encode('latin-1', 'replace').decode('latin-1')
-            # Using width=190 (full page width minus margins) to force horizontal space
             pdf.multi_cell(190, 10, txt=safe_story)
             
             # PAGE 2: Missions
@@ -82,6 +89,7 @@ if uploaded_file and st.button("Generate Adventure"):
                     pdf.multi_cell(190, 7, txt=f"Hint: {h}".encode('latin-1', 'replace').decode('latin-1'))
                     pdf.ln(4)
 
+            # Fix 6: Convert to raw bytes to prevent Streamlit download crash
             st.session_state.pdf_data = bytes(pdf.output())
             status.update(label="✅ Magic Complete!", state="complete", expanded=False)
 
