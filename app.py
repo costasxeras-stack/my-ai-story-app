@@ -15,7 +15,7 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Initialize memory (Fixed the typo here)
+# Initialize memory
 if "story_text" not in st.session_state: st.session_state.story_text = ""
 if "missions" not in st.session_state: st.session_state.missions = []
 if "pdf_data" not in st.session_state: st.session_state.pdf_data = None
@@ -35,7 +35,7 @@ if uploaded_file and st.button("Generate Adventure"):
             res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a precise vision assistant. Identify 5 objects physically present. Return ONLY JSON with 'story', 'missions' (the question), and 'hints' (where the object is)."},
+                    {"role": "system", "content": "You are a precise vision assistant. Identify 5 objects. Return ONLY JSON with 'story', 'missions' (the question), and 'hints' (where the object is)."},
                     {"role": "user", "content": [
                         {"type": "text", "text": "1. Identify 5 objects. 2. Write a toddler story. 3. Create 5 'Seek and Find' missions with hints. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
@@ -44,29 +44,32 @@ if uploaded_file and st.button("Generate Adventure"):
                 response_format={"type": "json_object"}
             )
             
-            data = json.loads(res.choices[0].message.content)
+            data = json.loads(res.choices.message.content)
             st.session_state.story_text = data.get("story", "")
             
             missions = data.get("missions", [])
             hints = data.get("hints", [])
             st.session_state.missions = list(zip(missions, hints))
 
-            # 3. Build PDF
+            # 3. Build PDF (Fixing horizontal space error)
             pdf = FPDF()
             
             # Page 1: Photo and Story
             pdf.add_page()
-            pdf.image(BytesIO(uploaded_file.getvalue()), x=10, y=10, w=190)
-            pdf.ln(150)
+            pdf.image(BytesIO(uploaded_file.getvalue()), x=10, y=10, w=180)
+            # Ensure we move the "Y" cursor well below the image
+            pdf.set_y(140) 
             pdf.set_font("Helvetica", size=12)
+            
             safe_story = st.session_state.story_text.encode('latin-1', 'replace').decode('latin-1')
+            # Using width=0 tells the PDF to use all available horizontal space automatically
             pdf.multi_cell(0, 10, txt=safe_story)
             
             # Page 2: Missions
             pdf.add_page()
             pdf.set_font("Helvetica", 'B', 16)
             pdf.cell(0, 10, "Target: Seek and Find Missions!", ln=True)
-            pdf.ln(10)
+            pdf.ln(5)
             
             for i, (m, h) in enumerate(st.session_state.missions):
                 pdf.set_font("Helvetica", 'B', 12)
