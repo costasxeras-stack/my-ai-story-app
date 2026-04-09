@@ -10,7 +10,7 @@ st.set_page_config(page_title="Magic Scan & Seek", page_icon="🔍")
 st.title("🔍 Magic Scan & Seek")
 
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Missing API Key! Add it to Streamlit Secrets.")
+    st.error("Missing API Key! Please add it to Streamlit Secrets.")
     st.stop()
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -35,26 +35,29 @@ if uploaded_file and st.button("Generate Adventure"):
             res = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a children's book author. Return JSON with 'story' (string), 'objects_found' (list of strings), and 'hints' (list of strings)."},
+                    {"role": "system", "content": "You are a children's book author. Return ONLY JSON with 'story' (string), 'objects_found' (list of strings), and 'hints' (list of strings)."},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "Step 1: Identify 5 actual objects. Step 2: Write a toddler story using them. Step 3: For each object, create a hint describing its location in the photo. Return ONLY JSON."},
+                        {"type": "text", "text": "Step 1: Identify 5 actual objects. Step 2: Write a toddler story. Step 3: Create 5 hints for the objects. Return ONLY JSON."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}", "detail": "high"}}
                     ]}
                 ],
                 response_format={"type": "json_object"}
             )
             
-            # THE CRITICAL FIX: Added [0] to handle the list correctly
+            # --- THE "NONE-TYPE" & "LIST" FIX ---
             raw_content = res.choices[0].message.content
+            
+            if not raw_content:
+                st.error("AI returned an empty response. Please try clicking the button again.")
+                st.stop()
+                
             data = json.loads(raw_content)
             
-            # Helper to keep text human-friendly
             def clean(val):
                 return str(val).strip("{}'[]\"")
 
-            st.session_state.story_text = clean(data.get("story", ""))
+            st.session_state.story_text = clean(data.get("story", "A magical adventure begins!"))
             
-            # Format questions exactly as requested
             objs = data.get("objects_found", [])
             hints = data.get("hints", [])
             
@@ -62,7 +65,7 @@ if uploaded_file and st.button("Generate Adventure"):
             for i in range(len(objs)):
                 obj_name = clean(objs[i])
                 q = f"Can you see the {obj_name} in the photo?"
-                h = clean(hints[i]) if i < len(hints) else "Look closely at the colors!"
+                h = clean(hints[i]) if i < len(hints) else "Look closely!"
                 formatted_missions.append((q, h))
             
             st.session_state.missions = formatted_missions
