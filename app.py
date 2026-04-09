@@ -8,7 +8,7 @@ st.set_page_config(page_title="Magic Adventure & Learn", page_icon="🚀")
 st.title("🚀 Magic Adventure & Learn")
 
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Missing API Key! Please add it to your [Streamlit Secrets](https://streamlit.io).")
+    st.error("Missing API Key! Add it to Streamlit Secrets.")
     st.stop()
 
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -24,7 +24,7 @@ if "pdf_ready" not in st.session_state:
 # 2. User Inputs
 uploaded_file = st.file_uploader("1. Upload hero's photo", type=['jpg', 'png', 'jpeg'])
 hero_name = st.text_input("2. Hero's Name", "Leo")
-magic_items = st.text_input("3. What's in the room? (e.g., blue truck, rug)", "a teddy bear")
+magic_items = st.text_input("3. What's in the room?", "a teddy bear")
 
 if uploaded_file and st.button("Start Adventure"):
     try:
@@ -39,7 +39,6 @@ if uploaded_file and st.button("Start Adventure"):
                 messages=[{"role": "user", "content": prompt}]
             )
             
-            # FIXED: Added [0] to avoid the 'list' error
             raw_content = res.choices[0].message.content
             raw_parts = raw_content.split('|')
             
@@ -50,9 +49,16 @@ if uploaded_file and st.button("Start Adventure"):
             pdf = FPDF()
             img_data = uploaded_file.getvalue()
 
-            for i, text in enumerate(story_data):
+            for text in story_data:
+                # FIX: Truncate text to 4000 chars to avoid the 4096 'string_too_long' error
+                safe_audio_text = text[:4000] 
+                
                 # Voice Narration
-                audio_res = client.audio.speech.create(model="tts-1", voice="nova", input=text)
+                audio_res = client.audio.speech.create(
+                    model="tts-1", 
+                    voice="nova", 
+                    input=safe_audio_text
+                )
                 st.session_state.story_pages.append({"text": text, "audio": audio_res.content})
 
                 # Build PDF Page
@@ -74,14 +80,12 @@ if uploaded_file and st.button("Start Adventure"):
 if uploaded_file:
     st.image(uploaded_file, caption="The Adventure World", use_container_width=True)
 
-# Show Story & Play Audio
 for i, page in enumerate(st.session_state.story_pages):
     st.markdown(f"### Chapter {i+1}")
     st.audio(page["audio"], format="audio/mp3")
     st.write(page["text"])
     st.divider()
 
-# Show Flashcards
 if st.session_state.flashcards:
     st.header("🌟 Magic Learning Missions")
     cols = st.columns(3)
@@ -89,11 +93,5 @@ if st.session_state.flashcards:
         with cols[i]:
             st.info(f"**Mission {i+1}**\n\n{mission}")
 
-# 4. Final Download Button
 if st.session_state.pdf_ready:
-    st.download_button(
-        label="📥 Download Adventure PDF",
-        data=st.session_state.pdf_ready,
-        file_name="adventure.pdf",
-        mime="application/pdf"
-    )
+    st.download_button("📥 Download PDF", data=st.session_state.pdf_ready, file_name="adventure.pdf")
